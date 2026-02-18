@@ -1,0 +1,104 @@
+version: "3.8"
+
+services:
+  # mysql database
+  psdb:
+    image: mysql:5.7
+    container_name: psdb
+    restart: unless-stopped
+    ports:
+      - "5306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - psdb_data:/var/lib/mysql
+      - ./bind/mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
+    networks:
+      - ps_internal
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-p${MYSQL_ROOT_PASSWORD}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # phpmyadmin
+  pspma:
+    image: phpmyadmin/phpmyadmin:5.2.2
+    container_name: pspma
+    restart: unless-stopped
+    ports:
+      - "5301:80"
+    environment:
+      PMA_HOST: ${MYSQL_HOST}
+      PMA_PORT: ${MYSQL_PORT}
+      UPLOAD_LIMIT: 128M
+    networks:
+      - ps_internal
+      - web
+    depends_on:
+      psdb:
+        condition: service_healthy
+
+  # prestashop instance
+  ps:
+    image: prestashop/prestashop:1.7.6.8
+    container_name: ps
+    restart: unless-stopped
+    ports:
+      - "5300:80"
+    environment:
+      DB_SERVER: ${MYSQL_HOST}
+      DB_PORT: ${MYSQL_PORT}
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWD: ${MYSQL_PASSWORD}
+      PS_DOMAIN: ${PS_DOMAIN}
+      PS_FOLDER_ADMIN: ${PS_ADMIN_FOLDER}
+      PS_INSTALL_AUTO: ${PS_INSTALL_AUTO}
+      PS_ERASE_DB: ${PS_ERASE_DB}
+      ADMIN_MAIL: ${PS_ADMIN_MAIL}
+      ADMIN_PASSWD: ${PS_ADMIN_PASSWD}
+      PS_HANDLE_DYNAMIC_DOMAIN: ${PS_HANDLE_DYNAMIC_DOMAIN}
+    volumes:
+      - ps_html:/var/www/html
+      - ps_var_cache:/var/www/html/var/cache
+      - ps_var_logs:/var/www/html/var/logs
+      - ./bind/opcache.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
+      - ./bind/apache-perf.conf:/etc/apache2/conf-enabled/perf.conf:ro
+    networks:
+      - ps_internal
+      - web
+    depends_on:
+      psdb:
+        condition: service_healthy
+
+volumes:
+  psdb_data:
+    name: psdb_data
+  ps_var_cache:
+    name: ps_var_cache
+  ps_var_logs:
+    name: ps_var_logs
+  ps_html:
+    name: ps_html
+
+networks:
+  ps_internal:
+    name: ps_internal
+    driver: bridge
+  web:
+    external: true
+    name: ${SHARED_NETWORK}
